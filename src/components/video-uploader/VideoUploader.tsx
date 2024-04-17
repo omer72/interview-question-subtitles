@@ -1,44 +1,45 @@
 import { ChangeEventHandler, useEffect, useState } from "react";
-
- 
 import { CAPTIONS_GENERATION_COMPLETED, GENERATE_SUBTITLES_TASK, dispatchCustomEvent } from "../../utils/ai-tools";
-import { text } from "stream/consumers";
 
-interface Subtitle{
-    time:number,
-    text:string
+/*
+*   1. call GENERATE_SUBTITLES_TASK - done
+*   2. listen to event CAPTIONS_GENERATION_COMPLETED mad clean once return - done
+*   3. parse the response -done
+*   4. hold the data in array of objects - done
+*   5. once I have the data, display the video - done
+*   6. listen to video update ... -> find the text that match the time > from time and < from the next - done
+*   7. display the text on top of the video - done
+*/
+function timeStrToInt(timestamp: string): any {
+    const temp = timestamp.split(':');
+    return parseInt(temp[0])*3600 + parseInt(temp[1])*60 + parseInt(temp[2])
 }
 
 function VideoUploader() {
     const [videoSrc, setVideoSrc] = useState<string>();
-    const [subtitles, setSubtitles] = useState<Subtitle[]>([]);
-    const [subtitleText, setSubtitleText] = useState('');
+    const [videoSubtitleArr, setVideoSubtitleArr] = useState<{timestamp:any, text:any}[]>([]);
+    const [currentSubtitle, setCurrentSubtitle] = useState('');
+
+    const parseEventResponse = (event:any) =>{
+        let subStringObjArray:{timestamp:any, text:any}[] = [];
+        const suntitleArray:[any] = event.detail.response.split('\n');
+        suntitleArray.forEach(element => {
+            const [timestamp, ...text]   = element.split(' ');
+            const subStringObj = {timestamp, text:text.join(' ')};
+            subStringObj.timestamp = timeStrToInt(subStringObj.timestamp);
+            if (!Number.isNaN(subStringObj.timestamp)) subStringObjArray.push(subStringObj);
+        });
+        setVideoSubtitleArr(subStringObjArray);
+    }
 
     useEffect(()=>{
-        
-        const handleSubstr  = (substr:any) => {
-            let subTitleObj:Subtitle[] = [];
-            const subStrArr = substr.detail.response.split('\n');
-            for (let index = 0; index < subStrArr.length; index++) {
-                const element = subStrArr[index];
-                const time  = element.slice(0,8).split(':');
-                const hour = time[0];
-                const min = time[1];
-                const sec = time[2];
-                const secTotal = hour * 3600 +  min * 60 + sec;
-                subTitleObj.push({time: secTotal, text: element.slice(9)})
-            };
-            setSubtitles(subTitleObj);
-        }
-        document.addEventListener(CAPTIONS_GENERATION_COMPLETED,handleSubstr);
-        
-        return(() =>
-            document.removeEventListener(CAPTIONS_GENERATION_COMPLETED,handleSubstr)
-        )
-
-
+        document.addEventListener(CAPTIONS_GENERATION_COMPLETED, parseEventResponse);
+        return(()=>{
+            document.removeEventListener(CAPTIONS_GENERATION_COMPLETED, parseEventResponse);
+        })
     },[])
-   
+    
+
     const handleFileChange: ChangeEventHandler<HTMLInputElement> = (event) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -47,33 +48,39 @@ function VideoUploader() {
         
         reader.onload = (e) => {
             if (!e.target) return
-            const videoSrc = e.target.result as string;
-            setVideoSrc(videoSrc);
-            dispatchCustomEvent(GENERATE_SUBTITLES_TASK,{
+            setVideoSrc(e.target.result as string);
+            dispatchCustomEvent(GENERATE_SUBTITLES_TASK, {
                 detail: {
-                    videoSrc
-                  }
+                  videoSrc
+                }
             })
         };
 
         reader.readAsDataURL(file);
     };
 
-    const handleTimeChange = (time:number) => {
-        const subtitle = subtitles.find(sub => {
-            const startTime = sub.time;
-            const nextSubtitleIndex = subtitles.indexOf(sub) + 1;
-            const endTime = nextSubtitleIndex < subtitles.length ? subtitles[nextSubtitleIndex].time : Number.POSITIVE_INFINITY;
-            return time >= startTime && time < endTime;
-        });
+    const handleCurrentTime = (time: number) => {
+        let subtitle: { timestamp: number, text: string } | undefined;
+    
+        for (let i = 0 ; i < videoSubtitleArr.length ; i++) {
+            const startTime = videoSubtitleArr[i].timestamp;
+            const nextSubtitle = videoSubtitleArr[i + 1];
+            const endTime = nextSubtitle ? nextSubtitle.timestamp : Number.POSITIVE_INFINITY;
+    
+            if (time >= startTime && time < endTime) {
+                subtitle = videoSubtitleArr[i];
+                break;
+            }
+        }
     
         if (subtitle) {
-            setSubtitleText(subtitle.text);
+            setCurrentSubtitle(subtitle.text);
         } else {
-            console.error("No subtitle found for the given time.");
-        }
-    }
+            setCurrentSubtitle('');
 
+        }
+    };
+    
 
     return (
             <div>
@@ -82,23 +89,31 @@ function VideoUploader() {
                     accept="video/*"
                     onChange={handleFileChange}
                 />}
-                {subtitles.length > 0 &&  <div   
-                style={{ display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center',
-                  }}>
-                    <div style={{position:'relative'}}> 
-                        <video src={videoSrc} style={{ maxWidth: '100%', maxHeight: '100%' }} controls  height='400px' onTimeUpdate={(event:any) =>{
-                            handleTimeChange(parseInt(event.target.currentTime) ) 
-                        }} />
-                        <p style={{ position: 'absolute', 
-                        bottom: 40, left: 0, width: '100%', 
-                        textAlign: 'center',  color: '#fff', padding: '5px' }}>{subtitleText}</p>
-                    </div>
-                </div>}
-
+                {videoSubtitleArr.length > 0 && 
+                <div style={{position:'relative', display: "inline-block"}}>
+                        <video 
+                            src={videoSrc} 
+                            controls
+                            height='400px'
+                            onTimeUpdate={(event:any)=>{
+                                handleCurrentTime(event.target.currentTime);
+                            }}
+                            
+                        />
+                        <p style={{ 
+                            position:"absolute",
+                            bottom:'20px',
+                            left:'50%',
+                            transform: 'translateX(-50%)',   
+                            color:"white"
+                        }}>{currentSubtitle}</p>
+                </div>
+                }
+                
             </div>
     );
 }
 
 export default VideoUploader;
+
+
