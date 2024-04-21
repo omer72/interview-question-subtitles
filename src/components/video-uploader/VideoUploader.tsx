@@ -1,4 +1,4 @@
-\import { ChangeEventHandler, useEffect, useState } from "react"; 
+import { ChangeEventHandler, useEffect, useState } from "react"; 
 import { CAPTIONS_GENERATION_COMPLETED, GENERATE_SUBTITLES_TASK, dispatchCustomEvent } from "../../utils/ai-tools";
 import { timeStamp } from "console";
 
